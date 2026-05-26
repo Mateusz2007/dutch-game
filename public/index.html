@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dutch Card Game</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #1a472a;
+  color: #f0f0f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.hidden { display: none !important; }
+
+/* Lobby */
+#lobby {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 100vh; gap: 16px;
+}
+#lobby h1 {
+  font-size: 4rem; color: #ffd700; text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+  letter-spacing: 8px; text-transform: uppercase;
+}
+.subtitle { color: #ccc; font-size: 1.1rem; margin-top: -8px; }
+.lobby-form {
+  display: flex; flex-direction: column; gap: 10px;
+  background: rgba(0,0,0,0.3); padding: 24px; border-radius: 12px;
+  min-width: 280px;
+}
+.lobby-form input {
+  padding: 10px 14px; border-radius: 6px; border: 1px solid #555;
+  background: #2a2a2a; color: #fff; font-size: 1rem;
+}
+.lobby-form button, #startBtn, #nextRoundBtn, #peekConfirmBtn, #peekResultOk {
+  padding: 10px 20px; border-radius: 6px; border: none;
+  background: #ffd700; color: #1a472a; font-weight: bold;
+  font-size: 1rem; cursor: pointer; transition: background 0.2s;
+}
+.lobby-form button:hover, #startBtn:hover { background: #ffed4a; }
+#lobbyInfo { text-align: center; margin-top: 12px; }
+#startBtn { margin-top: 12px; }
+
+/* Game layout */
+#game {
+  display: flex; flex-direction: column; min-height: 100vh;
+  padding: 12px; gap: 8px;
+}
+#topBar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(0,0,0,0.3); padding: 8px 16px; border-radius: 8px;
+  font-size: 0.9rem;
+}
+#opponentArea {
+  display: flex; justify-content: center; gap: 24px; padding: 8px;
+  flex-wrap: wrap;
+}
+.opponent-hand {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.opponent-name {
+  font-size: 0.85rem; color: #ccc; padding: 2px 10px;
+  background: rgba(0,0,0,0.3); border-radius: 4px;
+}
+.opponent-name.active-turn { color: #ffd700; background: rgba(255,215,0,0.15); }
+.opponent-cards { display: flex; gap: 4px; }
+
+/* Cards */
+.card {
+  width: 70px; height: 100px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; font-weight: bold; cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  position: relative; border: 2px solid rgba(255,255,255,0.1);
+}
+.card:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.card-back {
+  background: linear-gradient(135deg, #1e3a5f, #2c5282);
+  border: 2px solid #4a7ab5;
+}
+.card-back::after {
+  content: ''; position: absolute; inset: 6px;
+  border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;
+}
+.card-face {
+  background: #fff; color: #333; flex-direction: column;
+}
+.card-face.red { color: #cc0000; }
+.card-face.black { color: #222; }
+.card-value { font-size: 1.2rem; line-height: 1; }
+.card-suit { font-size: 1rem; }
+
+.card-small { width: 48px; height: 68px; font-size: 0.8rem; }
+.card-small .card-value { font-size: 0.9rem; }
+.card-small .card-suit { font-size: 0.75rem; }
+
+.card-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.card-slot label { font-size: 0.8rem; color: #aaa; }
+
+#tableCenter {
+  display: flex; justify-content: center; gap: 32px;
+  align-items: center; padding: 16px;
+}
+.deck-count {
+  color: rgba(255,255,255,0.6); font-size: 0.8rem; z-index: 1;
+}
+
+/* Drawn area */
+#drawnArea {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 8px;
+  background: rgba(255,215,0,0.1); border-radius: 8px;
+  margin: 0 auto; min-width: 200px;
+}
+#drawnArea p { font-size: 0.9rem; color: #ffd700; }
+#drawnActions { display: flex; align-items: center; gap: 12px; }
+#discardDrawnBtn {
+  padding: 6px 16px; border-radius: 6px; border: none;
+  background: #e53e3e; color: #fff; cursor: pointer; font-size: 0.85rem;
+}
+.hint { font-size: 0.75rem; color: #aaa; }
+
+/* Player hand */
+#playerHand {
+  display: flex; justify-content: center; gap: 8px;
+  padding: 12px; margin-top: auto;
+}
+.player-card-wrapper {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.card-index { font-size: 0.7rem; color: #888; }
+
+/* Action bar */
+#actionBar {
+  display: flex; justify-content: center; padding: 8px; gap: 12px;
+}
+.end-turn-btn {
+  padding: 10px 32px; border-radius: 8px; border: 2px solid #48bb78;
+  background: rgba(72,187,120,0.2); color: #48bb78; font-size: 1rem;
+  font-weight: bold; cursor: pointer;
+}
+.dutch-btn {
+  padding: 10px 32px; border-radius: 8px; border: 2px solid #ffd700;
+  background: rgba(255,215,0,0.2); color: #ffd700; font-size: 1.1rem;
+  font-weight: bold; cursor: pointer; text-transform: uppercase;
+  letter-spacing: 4px; animation: dutchPulse 2s infinite;
+}
+@keyframes dutchPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255,215,0,0.3); }
+  50% { box-shadow: 0 0 20px rgba(255,215,0,0.6); }
+}
+
+/* Overlays */
+#peekOverlay, #peekResultOverlay, #roundOverlay, #specialOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#peekContent, #peekResultContent, #roundContent, #specialContent {
+  background: #2d3748; padding: 24px 32px; border-radius: 12px;
+  text-align: center; max-width: 500px; width: 90%;
+}
+#peekContent h2, #peekResultContent h2, #roundContent h2 { color: #ffd700; margin-bottom: 12px; }
+#peekCards, #peekResultCards {
+  display: flex; justify-content: center; gap: 8px; margin: 16px 0;
+}
+.peek-card-wrapper { position: relative; }
+.peek-selected { outline: 3px solid #ffd700; outline-offset: 2px; }
+
+/* Round results */
+#roundResults, #totalResults {
+  margin: 12px 0; text-align: left;
+}
+#roundResults table, #totalResults table {
+  width: 100%; border-collapse: collapse;
+}
+#roundResults td, #totalResults td, #roundResults th, #totalResults th {
+  padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+#roundResults th, #totalResults th { color: #ffd700; text-align: left; }
+
+/* Special overlay */
+#specialContent {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+#specialContent h3 { color: #ffd700; }
+.special-players {
+  display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+}
+.special-player-group {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.special-player-name { font-size: 0.85rem; color: #ccc; }
+.special-cards { display: flex; gap: 4px; }
+.special-card-selected { outline: 3px solid #48bb78; outline-offset: 2px; }
+.skip-btn {
+  padding: 6px 20px; border-radius: 6px; border: 1px solid #888;
+  background: transparent; color: #ccc; cursor: pointer; font-size: 0.85rem;
+  margin-top: 8px;
+}
+.confirm-special-btn {
+  padding: 8px 24px; border-radius: 6px; border: none;
+  background: #48bb78; color: #fff; cursor: pointer; font-weight: bold;
+}
+
+/* Toast */
+#toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.85); color: #fff; padding: 10px 24px;
+  border-radius: 8px; font-size: 0.95rem; z-index: 200;
+  animation: fadeInUp 0.3s;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Lobby -->
+  <div id="lobby">
+    <h1>Dutch</h1>
+    <p class="subtitle">The Card Game</p>
+    <div class="lobby-form">
+      <input id="playerName" placeholder="Your name" maxlength="12" />
+      <input id="roomId" placeholder="Room code" maxlength="10" />
+      <button id="joinBtn">Join Room</button>
+    </div>
+    <div id="lobbyInfo" class="hidden">
+      <p>Players in room: <span id="playerList"></span></p>
+      <button id="startBtn" class="hidden">Start Game</button>
+    </div>
+  </div>
+
+  <!-- Game -->
+  <div id="game" class="hidden">
+    <div id="topBar">
+      <span id="roundInfo"></span>
+      <span id="turnInfo"></span>
+      <span id="scoreInfo"></span>
+    </div>
+
+    <!-- Opponent area -->
+    <div id="opponentArea"></div>
+
+    <!-- Table center -->
+    <div id="tableCenter">
+      <div id="deckPile" class="card-slot">
+        <div class="card card-back" id="deckCard">
+          <span class="deck-count"></span>
+        </div>
+        <label>Deck</label>
+      </div>
+      <div id="discardSlot" class="card-slot">
+        <div class="card" id="discardCard"></div>
+        <label>Discard</label>
+      </div>
+    </div>
+
+    <!-- Drawn card area -->
+    <div id="drawnArea" class="hidden">
+      <p>You drew:</p>
+      <div class="card" id="drawnCard"></div>
+      <div id="drawnActions">
+        <button id="discardDrawnBtn">Discard</button>
+        <p class="hint">Or click one of your cards to swap</p>
+      </div>
+    </div>
+
+    <!-- Player hand -->
+    <div id="playerHand"></div>
+
+    <!-- Action buttons -->
+    <div id="actionBar">
+      <button id="endTurnBtn" class="end-turn-btn hidden">End Turn</button>
+      <button id="dutchBtn" class="dutch-btn hidden">DUTCH!</button>
+    </div>
+
+    <!-- Special action overlay -->
+    <div id="specialOverlay" class="hidden">
+      <div id="specialContent"></div>
+    </div>
+
+    <!-- Peeking phase -->
+    <div id="peekOverlay" class="hidden">
+      <div id="peekContent">
+        <h2>Peek at 2 of your cards</h2>
+        <p>Select exactly 2 cards to peek at, then memorize them!</p>
+        <div id="peekCards"></div>
+        <button id="peekConfirmBtn" disabled>Confirm</button>
+      </div>
+    </div>
+
+    <!-- Peek result -->
+    <div id="peekResultOverlay" class="hidden">
+      <div id="peekResultContent">
+        <h2>Memorize these cards!</h2>
+        <div id="peekResultCards"></div>
+        <button id="peekResultOk">Got it!</button>
+      </div>
+    </div>
+
+    <!-- Round over overlay -->
+    <div id="roundOverlay" class="hidden">
+      <div id="roundContent">
+        <h2>Round Over</h2>
+        <div id="roundResults"></div>
+        <div id="totalResults"></div>
+        <button id="nextRoundBtn">Next Round</button>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="hidden"></div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let state = null;
+let myName = '';
+let peekSelection = [];
+let specialSwapSelections = []; // [{playerId, cardIndex}]
+
+// --- Helpers ---
+function suitSymbol(suit) {
+  return { hearts: '\u2665', diamonds: '\u2666', clubs: '\u2663', spades: '\u2660' }[suit] || '';
+}
+function isRedSuit(suit) { return suit === 'hearts' || suit === 'diamonds'; }
+
+function renderCard(card, small = false) {
+  const div = document.createElement('div');
+  if (!card || !card.faceUp && !card.value) {
+    div.className = 'card card-back' + (small ? ' card-small' : '');
+    return div;
+  }
+  const red = isRedSuit(card.suit);
+  div.className = 'card card-face ' + (red ? 'red' : 'black') + (small ? ' card-small' : '');
+  div.innerHTML = `<span class="card-value">${card.value}</span><span class="card-suit">${suitSymbol(card.suit)}</span>`;
+  return div;
+}
+
+function showToast(msg, duration = 2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.add('hidden'), duration);
+}
+
+// --- Lobby ---
+document.getElementById('joinBtn').addEventListener('click', () => {
+  const name = document.getElementById('playerName').value.trim();
+  const room = document.getElementById('roomId').value.trim() || 'default';
+  if (!name) return;
+  myName = name;
+  socket.emit('joinRoom', { roomId: room, playerName: name });
+});
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  socket.emit('startGame');
+});
+
+socket.on('roomUpdate', ({ players, phase }) => {
+  document.getElementById('lobbyInfo').classList.remove('hidden');
+  document.getElementById('playerList').textContent = players.join(', ');
+  const startBtn = document.getElementById('startBtn');
+  if (players.length >= 2 && phase === 'waiting') {
+    startBtn.classList.remove('hidden');
+  }
+});
+
+// --- Game state rendering ---
+socket.on('gameState', (s) => {
+  state = s;
+  if (s.phase === 'waiting') return;
+
+  document.getElementById('lobby').classList.add('hidden');
+  document.getElementById('game').classList.remove('hidden');
+
+  renderTopBar();
+  renderOpponents();
+  renderTableCenter();
+  renderDrawnArea();
+  renderPlayerHand();
+  renderActionBar();
+  renderPeekOverlay();
+  renderRoundOverlay();
+  renderSpecialOverlay();
+});
+
+function renderTopBar() {
+  document.getElementById('roundInfo').textContent = `Round ${state.roundNumber}/${state.maxRounds}`;
+  const cp = state.players[state.currentTurn];
+  const turnText = cp ? (cp.id === socket.id ? 'Your turn' : `${cp.name}'s turn`) : '';
+  document.getElementById('turnInfo').textContent =
+    state.phase === 'dutchFinal' ? `DUTCH! ${turnText}` :
+    state.phase === 'peeking' ? 'Peeking phase' :
+    state.phase === 'roundOver' ? 'Round over' : turnText;
+
+  const scores = Object.entries(state.totalScores).map(([n, s]) => `${n}: ${s}`).join(' | ');
+  document.getElementById('scoreInfo').textContent = scores;
+}
+
+function renderOpponents() {
+  const area = document.getElementById('opponentArea');
+  area.innerHTML = '';
+  state.players.forEach((p, i) => {
+    if (p.id === socket.id) return;
+    const div = document.createElement('div');
+    div.className = 'opponent-hand';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'opponent-name' + (p.isCurrentTurn ? ' active-turn' : '');
+    nameEl.textContent = p.name + (p.id === state.dutchCallerId ? ' [DUTCH]' : '');
+    div.appendChild(nameEl);
+    const cardsDiv = document.createElement('div');
+    cardsDiv.className = 'opponent-cards';
+    p.cards.forEach((c, ci) => {
+      const card = state.phase === 'roundOver' ? renderCard({ ...c, faceUp: true }, true) : renderCard({}, true);
+      card.dataset.playerId = p.id;
+      card.dataset.cardIndex = ci;
+      cardsDiv.appendChild(card);
+    });
+    div.appendChild(cardsDiv);
+    area.appendChild(div);
+  });
+}
+
+function renderTableCenter() {
+  const deckEl = document.getElementById('deckCard');
+  deckEl.querySelector('.deck-count').textContent = state.deckCount;
+  deckEl.onclick = () => {
+    if (isMyTurn() && !state.drawnCard && !state.hasDrawnCard && !state.specialAction) {
+      socket.emit('drawCard', { source: 'deck' });
+    }
+  };
+
+  const discardEl = document.getElementById('discardCard');
+  discardEl.innerHTML = '';
+  if (state.discardTop) {
+    const dc = renderCard({ ...state.discardTop, faceUp: true });
+    dc.onclick = () => {
+      if (isMyTurn() && !state.drawnCard && !state.hasDrawnCard && !state.specialAction) {
+        socket.emit('drawCard', { source: 'discard' });
+      }
+    };
+    discardEl.replaceWith(dc);
+    dc.id = 'discardCard';
+  }
+}
+
+function renderDrawnArea() {
+  const area = document.getElementById('drawnArea');
+  if (state.drawnCard) {
+    area.classList.remove('hidden');
+    const cardEl = document.getElementById('drawnCard');
+    const rendered = renderCard({ ...state.drawnCard, faceUp: true });
+    cardEl.replaceWith(rendered);
+    rendered.id = 'drawnCard';
+    const discardBtn = document.getElementById('discardDrawnBtn');
+    discardBtn.style.display = state.drawnFrom === 'deck' ? 'block' : 'none';
+    discardBtn.onclick = () => socket.emit('discardDrawn');
+  } else {
+    area.classList.add('hidden');
+  }
+}
+
+function renderPlayerHand() {
+  const hand = document.getElementById('playerHand');
+  hand.innerHTML = '';
+  state.ownCards.forEach((c, i) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'player-card-wrapper';
+    const card = state.phase === 'roundOver' ? renderCard({ ...c, faceUp: true }) : renderCard({});
+    card.onclick = () => handleCardClick(i);
+    wrapper.appendChild(card);
+    const idx = document.createElement('span');
+    idx.className = 'card-index';
+    idx.textContent = i + 1;
+    wrapper.appendChild(idx);
+    hand.appendChild(wrapper);
+  });
+}
+
+function handleCardClick(index) {
+  // If we have a drawn card, swap it
+  if (state.drawnCard && isMyTurn()) {
+    socket.emit('placeCard', { cardIndex: index });
+    return;
+  }
+  // Slap (out-of-turn discard)
+  if ((state.phase === 'playing' || state.phase === 'dutchFinal') && !state.drawnCard && !state.hasDrawnCard && !state.specialAction) {
+    socket.emit('slapCard', { cardIndex: index });
+  }
+}
+
+function renderActionBar() {
+  const dutchBtn = document.getElementById('dutchBtn');
+  const endTurnBtn = document.getElementById('endTurnBtn');
+
+  // Show dutch + end turn after completing move (only in playing phase, not dutchFinal)
+  if (isMyTurn() && state.phase === 'playing' && state.turnCompleted && !state.specialAction) {
+    dutchBtn.classList.remove('hidden');
+    dutchBtn.onclick = () => socket.emit('callDutch');
+    endTurnBtn.classList.remove('hidden');
+    endTurnBtn.onclick = () => socket.emit('endTurn');
+  } else if (isMyTurn() && state.phase === 'dutchFinal' && state.turnCompleted && !state.specialAction) {
+    dutchBtn.classList.add('hidden');
+    endTurnBtn.classList.remove('hidden');
+    endTurnBtn.onclick = () => socket.emit('endTurn');
+  } else {
+    dutchBtn.classList.add('hidden');
+    endTurnBtn.classList.add('hidden');
+  }
+}
+
+function isMyTurn() {
+  return state.players[state.currentTurn]?.id === socket.id;
+}
+
+// --- Peeking phase ---
+function renderPeekOverlay() {
+  const overlay = document.getElementById('peekOverlay');
+  if (state.phase !== 'peeking') {
+    overlay.classList.add('hidden');
+    return;
+  }
+  overlay.classList.remove('hidden');
+  const cardsDiv = document.getElementById('peekCards');
+  cardsDiv.innerHTML = '';
+  state.ownCards.forEach((c, i) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'peek-card-wrapper';
+    const card = renderCard({});
+    if (peekSelection.includes(i)) card.classList.add('peek-selected');
+    card.onclick = () => {
+      if (peekSelection.includes(i)) {
+        peekSelection = peekSelection.filter(x => x !== i);
+      } else if (peekSelection.length < 2) {
+        peekSelection.push(i);
+      }
+      renderPeekOverlay();
+    };
+    wrapper.appendChild(card);
+    const idx = document.createElement('span');
+    idx.className = 'card-index';
+    idx.textContent = i + 1;
+    wrapper.appendChild(idx);
+    cardsDiv.appendChild(wrapper);
+  });
+  const btn = document.getElementById('peekConfirmBtn');
+  btn.disabled = peekSelection.length !== 2;
+  btn.onclick = () => {
+    socket.emit('peekDone', { cardIndices: peekSelection });
+    peekSelection = [];
+  };
+}
+
+socket.on('peekedCards', (cards) => {
+  const overlay = document.getElementById('peekResultOverlay');
+  overlay.classList.remove('hidden');
+  const cardsDiv = document.getElementById('peekResultCards');
+  cardsDiv.innerHTML = '';
+  cards.forEach(c => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'peek-card-wrapper';
+    const card = renderCard({ ...c, faceUp: true });
+    wrapper.appendChild(card);
+    const label = document.createElement('span');
+    label.className = 'card-index';
+    label.textContent = c.ownerId ? `Position ${c.index + 1}` : `Your card #${c.index + 1}`;
+    wrapper.appendChild(label);
+    cardsDiv.appendChild(wrapper);
+  });
+  document.getElementById('peekResultOk').onclick = () => {
+    overlay.classList.add('hidden');
+    document.getElementById('peekOverlay').classList.add('hidden');
+  };
+});
+
+// --- Special actions overlay ---
+function renderSpecialOverlay() {
+  const overlay = document.getElementById('specialOverlay');
+  if (!state.specialAction || state.specialAction.playerId !== socket.id) {
+    overlay.classList.add('hidden');
+    specialSwapSelections = [];
+    return;
+  }
+  overlay.classList.remove('hidden');
+  const content = document.getElementById('specialContent');
+  content.innerHTML = '';
+
+  if (state.specialAction.type === 'peekJ') {
+    content.innerHTML = '<h3>Red Jack: Peek at any card</h3><p>Click any card to peek at it</p>';
+    const playersDiv = document.createElement('div');
+    playersDiv.className = 'special-players';
+    state.players.forEach((p) => {
+      const group = document.createElement('div');
+      group.className = 'special-player-group';
+      const name = document.createElement('div');
+      name.className = 'special-player-name';
+      name.textContent = p.id === socket.id ? 'You' : p.name;
+      group.appendChild(name);
+      const cards = document.createElement('div');
+      cards.className = 'special-cards';
+      const cardArr = p.id === socket.id ? state.ownCards : p.cards;
+      cardArr.forEach((c, ci) => {
+        const card = renderCard({}, false);
+        card.onclick = () => {
+          socket.emit('specialPeek', { targetPlayerId: p.id, cardIndex: ci });
+        };
+        cards.appendChild(card);
+      });
+      group.appendChild(cards);
+      playersDiv.appendChild(group);
+    });
+    content.appendChild(playersDiv);
+    const skipBtn = document.createElement('button');
+    skipBtn.className = 'skip-btn';
+    skipBtn.textContent = 'Skip';
+    skipBtn.onclick = () => socket.emit('skipSpecial');
+    content.appendChild(skipBtn);
+
+  } else if (state.specialAction.type === 'swapQ') {
+    content.innerHTML = '<h3>Red Queen: Swap two cards</h3><p>Select 2 cards from different players to swap</p>';
+    const playersDiv = document.createElement('div');
+    playersDiv.className = 'special-players';
+    state.players.forEach((p) => {
+      const group = document.createElement('div');
+      group.className = 'special-player-group';
+      const name = document.createElement('div');
+      name.className = 'special-player-name';
+      name.textContent = p.id === socket.id ? 'You' : p.name;
+      group.appendChild(name);
+      const cards = document.createElement('div');
+      cards.className = 'special-cards';
+      const cardArr = p.id === socket.id ? state.ownCards : p.cards;
+      cardArr.forEach((c, ci) => {
+        const card = renderCard({}, false);
+        const isSelected = specialSwapSelections.some(s => s.playerId === p.id && s.cardIndex === ci);
+        if (isSelected) card.classList.add('special-card-selected');
+        card.onclick = () => {
+          if (isSelected) {
+            specialSwapSelections = specialSwapSelections.filter(s => !(s.playerId === p.id && s.cardIndex === ci));
+          } else if (specialSwapSelections.length < 2) {
+            specialSwapSelections.push({ playerId: p.id, cardIndex: ci });
+          }
+          if (specialSwapSelections.length === 2) {
+            const [s1, s2] = specialSwapSelections;
+            if (s1.playerId === s2.playerId) {
+              showToast('Must select cards from different players');
+              specialSwapSelections = [];
+            } else {
+              socket.emit('specialSwap', {
+                player1Id: s1.playerId, card1Index: s1.cardIndex,
+                player2Id: s2.playerId, card2Index: s2.cardIndex
+              });
+              specialSwapSelections = [];
+            }
+          }
+          renderSpecialOverlay();
+        };
+        cards.appendChild(card);
+      });
+      group.appendChild(cards);
+      playersDiv.appendChild(group);
+    });
+    content.appendChild(playersDiv);
+    const skipBtn = document.createElement('button');
+    skipBtn.className = 'skip-btn';
+    skipBtn.textContent = 'Skip';
+    skipBtn.onclick = () => { specialSwapSelections = []; socket.emit('skipSpecial'); };
+    content.appendChild(skipBtn);
+  }
+}
+
+// --- Round over ---
+function renderRoundOverlay() {
+  const overlay = document.getElementById('roundOverlay');
+  if (state.phase !== 'roundOver') {
+    overlay.classList.add('hidden');
+    return;
+  }
+  overlay.classList.remove('hidden');
+  const results = document.getElementById('roundResults');
+  results.innerHTML = '<h3>This Round</h3><table><tr><th>Player</th><th>Score</th></tr>' +
+    state.roundScores.map(r => `<tr><td>${r.name}${r.id === state.dutchCallerId ? ' [DUTCH]' : ''}</td><td>${r.score}</td></tr>`).join('') +
+    '</table>';
+  const total = document.getElementById('totalResults');
+  total.innerHTML = '<h3>Total Scores</h3><table><tr><th>Player</th><th>Total</th></tr>' +
+    Object.entries(state.totalScores)
+      .sort((a, b) => a[1] - b[1])
+      .map(([n, s]) => `<tr><td>${n}</td><td>${s}</td></tr>`).join('') +
+    '</table>';
+
+  document.getElementById('nextRoundBtn').onclick = () => socket.emit('nextRound');
+}
+
+// --- Slap feedback ---
+socket.on('slapResult', ({ success, playerName, card }) => {
+  if (success) {
+    showToast(`${playerName} matched ${card.value}!`);
+  } else {
+    showToast(`${playerName} guessed wrong! Penalty card drawn.`);
+  }
+});
+
+socket.on('error', ({ message }) => showToast(message, 3000));
+
+// Enter key support
+document.getElementById('playerName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('joinBtn').click();
+});
+document.getElementById('roomId').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('joinBtn').click();
+});
+</script>
+</body>
+</html>

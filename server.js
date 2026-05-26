@@ -9,6 +9,42 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Admin password
+const ADMIN_PASSWORD = 'Dutch123!';
+
+// --- Admin API ---
+app.get('/admin/rooms', (req, res) => {
+  const auth = req.query.password;
+  if (auth !== ADMIN_PASSWORD) return res.status(403).json({ error: 'Unauthorized' });
+
+  const roomList = Object.entries(rooms).map(([id, room]) => ({
+    id,
+    phase: room.phase,
+    playerCount: room.players.length,
+    players: room.players.map(p => p.name),
+    roundNumber: room.roundNumber,
+    maxRounds: room.maxRounds,
+    totalScores: room.totalScores,
+  }));
+  res.json(roomList);
+});
+
+app.post('/admin/rooms/:roomId/delete', express.json(), (req, res) => {
+  const auth = req.query.password;
+  if (auth !== ADMIN_PASSWORD) return res.status(403).json({ error: 'Unauthorized' });
+
+  const roomId = req.params.roomId;
+  const room = rooms[roomId];
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+
+  // Notify all players in the room
+  for (const p of room.players) {
+    io.to(p.socketId).emit('roomDeleted', { message: 'This room has been closed by an admin.' });
+  }
+  delete rooms[roomId];
+  res.json({ success: true });
+});
+
 // --- Card & Deck helpers ---
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
 const VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -197,6 +233,10 @@ function triggerDutch(room, roomId, playerId) {
   room.dutchCallerIndex = pIdx;
   room.phase = 'dutchFinal';
 
+  io.to(roomId).emit('actionEvent', {
+    type: 'dutch', playerId, playerName: room.players[pIdx].name
+  });
+
   // Build final turn order: everyone after dutchCaller gets one more turn
   room.finalTurnOrder = [];
   for (let i = 1; i < room.players.length; i++) {
@@ -323,15 +363,26 @@ io.on('connection', (socket) => {
     if (room.players[room.currentTurn]?.id !== playerId) return;
     if (room.drawnCard) return; // already drew
     if (room.specialAction) return;
+    if (room.turnCompleted) return;
+
+    const player = room.players[room.currentTurn];
 
     if (source === 'deck') {
       if (room.deck.length === 0) return;
       room.drawnCard = room.deck.pop();
       room.drawnFrom = 'deck';
+      io.to(currentRoom).emit('actionEvent', {
+        type: 'draw', source: 'deck', playerId, playerName: player.name
+      });
     } else if (source === 'discard') {
       if (room.discardPile.length === 0) return;
+      const drawnDiscard = room.discardPile[room.discardPile.length - 1];
       room.drawnCard = room.discardPile.pop();
       room.drawnFrom = 'discard';
+      io.to(currentRoom).emit('actionEvent', {
+        type: 'draw', source: 'discard', playerId, playerName: player.name,
+        card: drawnDiscard
+      });
     }
 
     broadcastState(room, currentRoom);
@@ -349,10 +400,17 @@ io.on('connection', (socket) => {
     if (cardIndex < 0 || cardIndex >= player.cards.length) return;
 
     const oldCard = player.cards[cardIndex];
-    player.cards[cardIndex] = room.drawnCard;
+    const newCard = room.drawnCard;
+    player.cards[cardIndex] = newCard;
     room.discardPile.push(oldCard);
     room.drawnCard = null;
     room.drawnFrom = null;
+
+    // Broadcast: player placed card at position X, discarded Y
+    io.to(currentRoom).emit('actionEvent', {
+      type: 'place', playerId, playerName: player.name,
+      cardIndex, discardedCard: oldCard
+    });
 
     // Check for special card action
     const special = isSpecialDiscard(oldCard);
@@ -371,13 +429,19 @@ io.on('connection', (socket) => {
     if (!room || (room.phase !== 'playing' && room.phase !== 'dutchFinal')) return;
     if (room.players[room.currentTurn]?.id !== playerId) return;
     if (!room.drawnCard) return;
-    if (room.drawnFrom !== 'deck') return; // can only discard if drawn from deck
+    if (room.drawnFrom !== 'deck') return;
     if (room.specialAction) return;
 
+    const player = room.players[room.currentTurn];
     const discarded = room.drawnCard;
     room.discardPile.push(discarded);
     room.drawnCard = null;
     room.drawnFrom = null;
+
+    io.to(currentRoom).emit('actionEvent', {
+      type: 'discardDrawn', playerId, playerName: player.name,
+      discardedCard: discarded
+    });
 
     // Check for special card action
     const special = isSpecialDiscard(discarded);
@@ -425,6 +489,13 @@ io.on('connection', (socket) => {
     const temp = p1.cards[card1Index];
     p1.cards[card1Index] = p2.cards[card2Index];
     p2.cards[card2Index] = temp;
+
+    io.to(currentRoom).emit('actionEvent', {
+      type: 'swap', playerId,
+      playerName: room.players.find(p => p.id === playerId).name,
+      player1Name: p1.name, player1Id: player1Id, card1Index,
+      player2Name: p2.name, player2Id: player2Id, card2Index
+    });
 
     room.specialAction = null;
     nextTurn(room, currentRoom);

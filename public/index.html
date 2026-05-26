@@ -215,6 +215,49 @@ body {
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* Action log */
+#actionLog {
+  position: fixed; top: 52px; right: 8px; width: 260px;
+  max-height: 220px; overflow-y: auto; z-index: 50;
+  display: flex; flex-direction: column; gap: 4px;
+  pointer-events: none;
+}
+.action-entry {
+  background: rgba(0,0,0,0.75); padding: 6px 12px; border-radius: 6px;
+  font-size: 0.8rem; color: #ddd; border-left: 3px solid #ffd700;
+  animation: logSlideIn 0.3s ease-out;
+}
+.action-entry .action-player { color: #ffd700; font-weight: bold; }
+.action-entry .action-card { color: #48bb78; font-weight: bold; }
+.action-entry .action-pos { color: #63b3ed; }
+@keyframes logSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Card highlight animations */
+@keyframes highlightPlace {
+  0% { box-shadow: 0 0 0 3px #ffd700; transform: scale(1.15); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+@keyframes highlightSwap {
+  0% { box-shadow: 0 0 0 3px #e53e3e; transform: scale(1.15); }
+  50% { box-shadow: 0 0 12px 3px #e53e3e; transform: scale(1.1); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+@keyframes highlightSlap {
+  0% { box-shadow: 0 0 0 3px #48bb78; transform: scale(1.2); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+@keyframes highlightDiscard {
+  0% { box-shadow: 0 0 0 3px #63b3ed; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.highlight-place { animation: highlightPlace 1.2s ease-out; }
+.highlight-swap { animation: highlightSwap 1.5s ease-out; }
+.highlight-slap { animation: highlightSlap 1s ease-out; }
+.highlight-discard { animation: highlightDiscard 1s ease-out; }
 </style>
 </head>
 <body>
@@ -314,6 +357,9 @@ body {
 
     <!-- Toast -->
     <div id="toast" class="hidden"></div>
+
+    <!-- Action log -->
+    <div id="actionLog"></div>
   </div>
 </div>
 
@@ -356,6 +402,13 @@ document.getElementById('joinBtn').addEventListener('click', () => {
   const name = document.getElementById('playerName').value.trim();
   const room = document.getElementById('roomId').value.trim() || 'default';
   if (!name) return;
+
+  // Admin panel check
+  if (name.toLowerCase() === 'admin') {
+    window.location.href = '/admin.html?p=' + encodeURIComponent(room);
+    return;
+  }
+
   myName = name;
   socket.emit('joinRoom', { roomId: room, playerName: name });
 });
@@ -377,6 +430,11 @@ socket.on('roomUpdate', ({ players, phase }) => {
 socket.on('gameState', (s) => {
   state = s;
   if (s.phase === 'waiting') return;
+
+  // Clear action log on new round (peeking phase)
+  if (s.phase === 'peeking') {
+    document.getElementById('actionLog').innerHTML = '';
+  }
 
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').classList.remove('hidden');
@@ -422,6 +480,7 @@ function renderOpponents() {
       const card = state.phase === 'roundOver' ? renderCard({ ...c, faceUp: true }, true) : renderCard({}, true);
       card.dataset.playerId = p.id;
       card.dataset.cardIndex = ci;
+      card.id = `card-${p.id}-${ci}`;
       cardsDiv.appendChild(card);
     });
     div.appendChild(cardsDiv);
@@ -475,6 +534,9 @@ function renderPlayerHand() {
     const wrapper = document.createElement('div');
     wrapper.className = 'player-card-wrapper';
     const card = state.phase === 'roundOver' ? renderCard({ ...c, faceUp: true }) : renderCard({});
+    card.dataset.playerId = socket.id;
+    card.dataset.cardIndex = i;
+    card.id = `card-${socket.id}-${i}`;
     card.onclick = () => handleCardClick(i);
     wrapper.appendChild(card);
     const idx = document.createElement('span');
@@ -699,16 +761,124 @@ function renderRoundOverlay() {
   document.getElementById('nextRoundBtn').onclick = () => socket.emit('nextRound');
 }
 
+// --- Action event log & card highlights ---
+const MAX_LOG_ENTRIES = 12;
+
+function cardLabel(card) {
+  if (!card) return '?';
+  return card.value + suitSymbol(card.suit);
+}
+
+function addLogEntry(html) {
+  const log = document.getElementById('actionLog');
+  const entry = document.createElement('div');
+  entry.className = 'action-entry';
+  entry.innerHTML = html;
+  log.appendChild(entry);
+  // Remove old entries
+  while (log.children.length > MAX_LOG_ENTRIES) {
+    log.removeChild(log.firstChild);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function highlightCard(playerId, cardIndex, animClass) {
+  // Small delay to let the DOM re-render after state update
+  setTimeout(() => {
+    const el = document.getElementById(`card-${playerId}-${cardIndex}`);
+    if (el) {
+      el.classList.remove(animClass);
+      void el.offsetWidth; // force reflow
+      el.classList.add(animClass);
+      el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+    }
+  }, 100);
+}
+
+function highlightDiscard(animClass) {
+  setTimeout(() => {
+    const el = document.getElementById('discardCard');
+    if (el) {
+      el.classList.remove(animClass);
+      void el.offsetWidth;
+      el.classList.add(animClass);
+      el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+    }
+  }, 100);
+}
+
+socket.on('actionEvent', (ev) => {
+  const isMe = ev.playerId === socket.id;
+  const name = isMe ? 'You' : ev.playerName;
+
+  switch (ev.type) {
+    case 'draw':
+      if (ev.source === 'deck') {
+        addLogEntry(`<span class="action-player">${name}</span> drew from the deck`);
+      } else {
+        addLogEntry(`<span class="action-player">${name}</span> took <span class="action-card">${cardLabel(ev.card)}</span> from discard`);
+      }
+      break;
+
+    case 'place':
+      addLogEntry(
+        `<span class="action-player">${name}</span> placed a card at <span class="action-pos">position ${ev.cardIndex + 1}</span>, ` +
+        `discarded <span class="action-card">${cardLabel(ev.discardedCard)}</span>`
+      );
+      highlightCard(ev.playerId, ev.cardIndex, 'highlight-place');
+      highlightDiscard('highlight-discard');
+      break;
+
+    case 'discardDrawn':
+      addLogEntry(
+        `<span class="action-player">${name}</span> discarded <span class="action-card">${cardLabel(ev.discardedCard)}</span> (no swap)`
+      );
+      highlightDiscard('highlight-discard');
+      break;
+
+    case 'swap': {
+      const p1Name = ev.player1Id === socket.id ? 'Your' : ev.player1Name + "'s";
+      const p2Name = ev.player2Id === socket.id ? 'Your' : ev.player2Name + "'s";
+      addLogEntry(
+        `<span class="action-player">${name}</span> swapped ` +
+        `<span class="action-pos">${p1Name} #${ev.card1Index + 1}</span> with ` +
+        `<span class="action-pos">${p2Name} #${ev.card2Index + 1}</span>`
+      );
+      highlightCard(ev.player1Id, ev.card1Index, 'highlight-swap');
+      highlightCard(ev.player2Id, ev.card2Index, 'highlight-swap');
+      break;
+    }
+
+    case 'dutch':
+      addLogEntry(`<span class="action-player">${name}</span> called <strong style="color:#e53e3e">DUTCH!</strong>`);
+      break;
+  }
+});
+
 // --- Slap feedback ---
-socket.on('slapResult', ({ success, playerName, card }) => {
+socket.on('slapResult', ({ success, playerName, card, playerId: slapPlayerId }) => {
+  const isMe = slapPlayerId === socket.id;
+  const name = isMe ? 'You' : playerName;
   if (success) {
+    addLogEntry(
+      `<span class="action-player">${name}</span> slapped <span class="action-card">${cardLabel(card)}</span> correctly!`
+    );
+    highlightDiscard('highlight-slap');
     showToast(`${playerName} matched ${card.value}!`);
   } else {
+    addLogEntry(
+      `<span class="action-player">${name}</span> guessed wrong! Penalty card.`
+    );
     showToast(`${playerName} guessed wrong! Penalty card drawn.`);
   }
 });
 
 socket.on('error', ({ message }) => showToast(message, 3000));
+
+socket.on('roomDeleted', ({ message }) => {
+  alert(message);
+  window.location.reload();
+});
 
 // Enter key support
 document.getElementById('playerName').addEventListener('keydown', (e) => {
